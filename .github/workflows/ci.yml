@@ -41,7 +41,8 @@ jobs:
         run: python -m pytest -q
 
       - name: Run pip-audit (dependency security)
-        run: python -m pip_audit --progress auto
+        # CI runners don't need a spinner; use --progress-spinner off to avoid invalid values
+        run: python -m pip_audit --progress-spinner off
 
       - name: Run bandit (static security scan)
         run: bandit -r . -q || true
