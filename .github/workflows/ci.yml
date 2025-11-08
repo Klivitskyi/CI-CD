@@ -138,11 +138,14 @@ jobs:
           if [ -n "${REMOTE_REPO}" ]; then
             REPO=${REMOTE_REPO}
           else
-            REPO=${GITHUB_REPOSITORY}
+            # default repository must match the build default
+            REPO=ivanklivitskyi/simple-python-app
           fi
           # normalize to lowercase for docker
           REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
           IMAGE=${REGISTRY}/${REPO_LOWER}
           echo "Pushing ${IMAGE}:${TAG_NAME}"
           docker load -i image.tar
+          echo "Images after load:"
+          docker images --format "{{.Repository}}:{{.Tag}}" | sed -n '1,20p'
           docker push ${IMAGE}:${TAG_NAME}
