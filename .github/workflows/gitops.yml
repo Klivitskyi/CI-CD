@@ -53,7 +53,8 @@ jobs:
           if [ -n "${REMOTE_REPO}" ]; then
             REPO=${REMOTE_REPO}
           else
-            REPO=${GITHUB_REPOSITORY}
+            # default Docker Hub repository (owner/repo)
+            REPO=ivanklivitskyi/simple-python-app
           fi
           # normalize to lowercase for docker
           REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')

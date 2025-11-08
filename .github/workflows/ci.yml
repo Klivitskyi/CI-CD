@@ -80,7 +80,8 @@ jobs:
           if [ -n "${REMOTE_REPO}" ]; then
             REPO=${REMOTE_REPO}
           else
-            REPO=${GITHUB_REPOSITORY}
+            # default Docker Hub repository (owner/repo) — override with REMOTE_REPOSITORY secret if needed
+            REPO=ivanklivitskyi/simple-python-app
           fi
 
           # Docker requires lowercase repository names; normalize to lowercase

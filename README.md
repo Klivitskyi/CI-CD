@@ -45,6 +45,9 @@ Required repository secrets for the workflow (set in Settings → Secrets → Ac
 - `DOCKER_USERNAME` — Registry username
 - `DOCKER_PASSWORD` — Registry password or token
 
+Optional:
+- `REMOTE_REPOSITORY` — (optional) the Docker repository path in the form `owner/repo`. If not provided the workflows default to `ivanklivitskyi/simple-python-app`.
+
 Notes:
 - The `gitops` workflow uses the branch name to decide the target overlay: `dev` -> `manifests/overlays/dev`, `main` -> `manifests/overlays/prod`.
 - For Docker Hub, ensure the registry image path matches your Docker Hub namespace, or change `IMAGE_NAME` usage in the workflow to use a `REMOTE_REPOSITORY` secret if the registry namespace differs from the GitHub repo owner.
