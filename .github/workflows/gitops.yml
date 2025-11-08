@@ -1,0 +1,122 @@
+name: GitOps CI
+
+on:
+  push:
+    branches:
+      - dev
+    # trigger production promotion only on tag pushes
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-update-manifests:
+    name: Build, push image and update manifests
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: ${{ github.ref_name }}
+      GITHUB_REF: ${{ github.ref }}
+      GITHUB_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ secrets.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          # Determine tag name: for tag pushes use the tag name, otherwise use dev-<short-sha>
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          else
+            TAG_NAME=dev-${GITHUB_SHA::7}
+          fi
+
+          if [ -n "${REMOTE_REPO}" ]; then
+            REPO=${REMOTE_REPO}
+          else
+            REPO=${GITHUB_REPOSITORY}
+          fi
+          IMAGE=${REGISTRY}/${REPO}
+          echo "Building ${IMAGE}:${TAG_NAME}"
+          docker build -t ${IMAGE}:${TAG_NAME} .
+          docker push ${IMAGE}:${TAG_NAME}
+
+      - name: Update overlay patch to point to new image
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          GIT_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          GIT_NAME: "github-actions[bot]"
+        run: |
+          # Decide whether this run should update dev or prod overlay
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            ENV=prod
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          elif [ "${BRANCH}" = "dev" ]; then
+            ENV=dev
+            TAG_NAME=${GITHUB_SHA}
+          else
+            echo "Not a dev branch or tag push; nothing to update." && exit 0
+          fi
+
+          if [ -n "${REMOTE_REPO}" ]; then
+            REPO=${REMOTE_REPO}
+          else
+            REPO=${GITHUB_REPOSITORY}
+          fi
+
+          IMAGE=${REGISTRY}/${REPO}
+          PATCH_FILE=manifests/overlays/${ENV}/patch-deployment.yaml
+
+          echo "Writing new patch for ${ENV} -> ${IMAGE}:${TAG_NAME}"
+          # replicas: 3 for prod, 1 for dev
+          if [ "${ENV}" = "prod" ]; then
+            REPLICAS=3
+          else
+            REPLICAS=1
+          fi
+
+          cat > ${PATCH_FILE} <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simple-app
+spec:
+  replicas: ${REPLICAS}
+  template:
+    spec:
+      containers:
+        - name: simple-app
+          image: ${IMAGE}:${TAG_NAME}
+EOF
+
+          git config user.email "${GIT_EMAIL}"
+          git config user.name "${GIT_NAME}"
+          git add ${PATCH_FILE}
+          git commit -m "ci: update ${ENV} image to ${TAG_NAME}" || true
+          git push || true
+
+      - name: Done
+        run: echo "Manifest update complete; ArgoCD will detect changes and sync." 
