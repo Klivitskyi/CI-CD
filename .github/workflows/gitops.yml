@@ -104,18 +104,18 @@ jobs:
           fi
 
           cat > ${PATCH_FILE} <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: simple-app
-spec:
-  replicas: ${REPLICAS}
-  template:
-    spec:
-      containers:
-        - name: simple-app
-          image: ${IMAGE}:${TAG_NAME}
-EOF
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+            name: simple-app
+            spec:
+            replicas: ${REPLICAS}
+            template:
+                spec:
+                containers:
+                    - name: simple-app
+                    image: ${IMAGE}:${TAG_NAME}
+            EOF
 
           git config user.email "${GIT_EMAIL}"
           git config user.name "${GIT_NAME}"
