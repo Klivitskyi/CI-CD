@@ -83,7 +83,9 @@ jobs:
             REPO=${GITHUB_REPOSITORY}
           fi
 
-          IMAGE=${REGISTRY}/${REPO}
+          # Docker requires lowercase repository names; normalize to lowercase
+          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
+          IMAGE=${REGISTRY}/${REPO_LOWER}
           echo "Building ${IMAGE}:${TAG_NAME}"
           docker build -t ${IMAGE}:${TAG_NAME} .
           # save image to tar so it can be passed to the next job
@@ -137,7 +139,9 @@ jobs:
           else
             REPO=${GITHUB_REPOSITORY}
           fi
-          IMAGE=${REGISTRY}/${REPO}
+          # normalize to lowercase for docker
+          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
+          IMAGE=${REGISTRY}/${REPO_LOWER}
           echo "Pushing ${IMAGE}:${TAG_NAME}"
           docker load -i image.tar
           docker push ${IMAGE}:${TAG_NAME}
