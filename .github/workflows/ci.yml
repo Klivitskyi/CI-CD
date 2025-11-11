@@ -67,6 +67,9 @@ jobs:
 
       - name: Determine image tag and target
         id: image
+        env:
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
         run: |
 
           echo ${REGISTRY}/${REMOTE_REPO}
