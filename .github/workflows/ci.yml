@@ -103,7 +103,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
+          tags: ${{ secrets.REGISTRY }}/${{ secrets.REMOTE_REPOSITORY }}:${{ steps.image.outputs.tag }}
 
   update-manifests:
     name: Update Manifests for ArgoCD
