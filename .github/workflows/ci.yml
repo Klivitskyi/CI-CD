@@ -132,7 +132,8 @@ jobs:
 
       - name: Update overlay manifest
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
+          TAG: ${{ needs.build-and-push.outputs.tag }}
           TARGET: ${{ needs.build-and-push.outputs.target }}
         run: |
           PATCH_FILE=manifests/overlays/${TARGET}/patch-deployment.yaml
@@ -154,9 +155,9 @@ jobs:
               spec:
                 containers:
                   - name: simple-app
-                    image: ${IMAGE}
+                    image: ${IMAGE}:${TAG}
           EOF
           
           git add ${PATCH_FILE}
-          git commit -m "chore: update ${TARGET} image to ${{ needs.build-and-push.outputs.tag }}" || true
+          git commit -m "chore: update ${TARGET} image to ${TAG}" || true
           git push origin HEAD:${{ needs.build-and-push.outputs.push_branch }} || true
