@@ -80,16 +80,9 @@ jobs:
             TAG_NAME=dev-${GITHUB_SHA::7}
             TARGET=dev
             PUSH_BRANCH=dev
-          fi
-          
-          if [ -n "${REMOTE_REPO}" ]; then
-            REPO=${REMOTE_REPO}
-          else
-            REPO=ivanklivitskyi/simple-python-app
-          fi
-          
-          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
-          IMAGE=${REGISTRY}/${REPO_LOWER}
+
+            
+          IMAGE=${REGISTRY}/${REMOTE_REPO}
           
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
