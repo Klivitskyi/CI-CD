@@ -8,4 +8,4 @@ spec:
     spec:
       containers:
         - name: simple-app
-          image: docker.io/ivanklivitskyi/simple-python-app:dev-dc3ec30
+          image: :dev-f0ffff4
