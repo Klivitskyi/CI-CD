@@ -80,8 +80,8 @@ jobs:
             TAG_NAME=dev-${GITHUB_SHA::7}
             TARGET=dev
             PUSH_BRANCH=dev
-
-            
+          fi
+          
           IMAGE=${REGISTRY}/${REMOTE_REPO}
           
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
