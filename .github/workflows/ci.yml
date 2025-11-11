@@ -33,7 +33,7 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -81,36 +81,36 @@ jobs:
             TARGET=dev
             PUSH_BRANCH=dev
           fi
-          
-          IMAGE=${REGISTRY}/${REMOTE_REPO}
-          
-          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
-          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
-          echo "target=${TARGET}" >> $GITHUB_OUTPUT
-          echo "push_branch=${PUSH_BRANCH}" >> $GITHUB_OUTPUT
+
+          IMAGE="${REGISTRY}/${REMOTE_REPO}"
+
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+          echo "push_branch=${PUSH_BRANCH}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ${{ secrets.REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push image
-        run: |
-          IMAGE="${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}"
-          echo "Building and pushing ${IMAGE}"
-          docker build -t ${IMAGE} .
-          docker push ${IMAGE}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}
 
   update-manifests:
-    name: Update Manifests for ArgoCD
+    name: Update Manifests for ArgoCD (Kustomize)
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/'))
@@ -123,37 +123,69 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Update overlay manifest
+      - name: Switch to target branch
+        env:
+          PUSH_BRANCH: ${{ needs.build-and-push.outputs.push_branch }}
+        run: |
+          git fetch origin "${PUSH_BRANCH}"
+          if git show-ref --verify --quiet "refs/heads/${PUSH_BRANCH}"; then
+            git checkout "${PUSH_BRANCH}"
+          else
+            git checkout -b "${PUSH_BRANCH}" "origin/${PUSH_BRANCH}" || git checkout -b "${PUSH_BRANCH}"
+          fi
+
+      - name: Install Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: 'latest'
+
+      - name: Update overlay via Kustomize
         env:
           IMAGE: ${{ needs.build-and-push.outputs.image }}
           TAG: ${{ needs.build-and-push.outputs.tag }}
           TARGET: ${{ needs.build-and-push.outputs.target }}
         run: |
-          PATCH_FILE=manifests/overlays/${TARGET}/patch-deployment.yaml
-          
-          if [ "${TARGET}" = "prod" ]; then
-            REPLICAS=3
-          else
-            REPLICAS=1
+          set -euo pipefail
+
+          OVERLAY_DIR="manifests/overlays/${TARGET}"
+          BASE_REL="../../base"
+          mkdir -p "${OVERLAY_DIR}"
+          cd "${OVERLAY_DIR}"
+
+          if [ ! -f kustomization.yaml ]; then
+            kustomize create --resources "${BASE_REL}"
           fi
-          
-          cat > ${PATCH_FILE} <<EOF
+
+          if ! grep -q "^resources:" kustomization.yaml; then
+            kustomize edit add resource "${BASE_REL}"
+          fi
+
+          if [ "${TARGET}" = "prod" ]; then REPLICAS=3; else REPLICAS=1; fi
+
+          cat > patch-replicas.yaml <<EOF
           apiVersion: apps/v1
           kind: Deployment
           metadata:
             name: simple-app
           spec:
             replicas: ${REPLICAS}
-            template:
-              spec:
-                containers:
-                  - name: simple-app
-                    image: ${IMAGE}:${TAG}
           EOF
-          
-          git add ${PATCH_FILE}
-          git commit -m "chore: update ${TARGET} image to ${TAG}" || true
-          git push origin HEAD:${{ needs.build-and-push.outputs.push_branch }} || true
+
+          if ! grep -q 'patch-replicas.yaml' kustomization.yaml; then
+            kustomize edit add patch --path patch-replicas.yaml
+          fi
+
+          kustomize edit set image simple-app=${IMAGE}:${TAG}
+
+          cd -
+          git add "${OVERLAY_DIR}/kustomization.yaml" "${OVERLAY_DIR}/patch-replicas.yaml"
+          git commit -m "chore(${TARGET}): set image ${IMAGE}:${TAG} and replicas" || echo "No changes to commit"
+
+      - name: Push changes
+        env:
+          PUSH_BRANCH: ${{ needs.build-and-push.outputs.push_branch }}
+        run: |
+          git push origin "HEAD:${PUSH_BRANCH}" || echo "Nothing to push"
