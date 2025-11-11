@@ -8,4 +8,4 @@ spec:
     spec:
       containers:
         - name: simple-app
-          image: :dev-5b6bc6a
+          image: :dev-d5049c1
