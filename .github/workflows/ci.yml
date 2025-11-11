@@ -58,7 +58,6 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/')
     outputs:
-      image: ${{ steps.image.outputs.image }}
       tag: ${{ steps.image.outputs.tag }}
       target: ${{ steps.image.outputs.target }}
       push_branch: ${{ steps.image.outputs.push_branch }}
@@ -68,9 +67,6 @@ jobs:
 
       - name: Determine image tag and target
         id: image
-        env:
-          REGISTRY: ${{ secrets.REGISTRY }}
-          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
         run: |
 
           echo ${REGISTRY}/${REMOTE_REPO}
@@ -85,7 +81,6 @@ jobs:
             PUSH_BRANCH=dev
           fi
 
-          echo "image=${REGISTRY}/${REMOTE_REPO}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
           echo "push_branch=${PUSH_BRANCH}" >> "$GITHUB_OUTPUT"
@@ -129,7 +124,8 @@ jobs:
 
       - name: Update overlay manifest
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.image }}
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
           TAG: ${{ needs.build-and-push.outputs.tag }}
           TARGET: ${{ needs.build-and-push.outputs.target }}
         run: |
@@ -152,7 +148,7 @@ jobs:
               spec:
                 containers:
                   - name: simple-app
-                    image: ${IMAGE}:${TAG}
+                    image: ${REGISTRY}/${REMOTE_REPO}:${TAG}
           EOF
           
           git add ${PATCH_FILE}
