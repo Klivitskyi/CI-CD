@@ -33,7 +33,7 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -58,7 +58,6 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/')
     outputs:
-      image: ${{ steps.image.outputs.image }}
       tag: ${{ steps.image.outputs.tag }}
       target: ${{ steps.image.outputs.target }}
       push_branch: ${{ steps.image.outputs.push_branch }}
@@ -72,6 +71,9 @@ jobs:
           REGISTRY: ${{ secrets.REGISTRY }}
           REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
         run: |
+
+          echo ${REGISTRY}/${REMOTE_REPO}
+
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
             TARGET=prod
@@ -81,40 +83,30 @@ jobs:
             TARGET=dev
             PUSH_BRANCH=dev
           fi
-          
-          if [ -n "${REMOTE_REPO}" ]; then
-            REPO=${REMOTE_REPO}
-          else
-            REPO=ivanklivitskyi/simple-python-app
-          fi
-          
-          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
-          IMAGE=${REGISTRY}/${REPO_LOWER}
-          
-          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
-          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
-          echo "target=${TARGET}" >> $GITHUB_OUTPUT
-          echo "push_branch=${PUSH_BRANCH}" >> $GITHUB_OUTPUT
+
+          echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+          echo "push_branch=${PUSH_BRANCH}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ${{ secrets.REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push image
-        run: |
-          IMAGE="${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}"
-          echo "Building and pushing ${IMAGE}"
-          docker build -t ${IMAGE} .
-          docker push ${IMAGE}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.REGISTRY }}/${{ secrets.REMOTE_REPOSITORY }}:${{ steps.image.outputs.tag }}
 
   update-manifests:
     name: Update Manifests for ArgoCD
@@ -135,7 +127,9 @@ jobs:
 
       - name: Update overlay manifest
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}
+          REGISTRY: ${{ secrets.REGISTRY }}
+          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
+          TAG: ${{ needs.build-and-push.outputs.tag }}
           TARGET: ${{ needs.build-and-push.outputs.target }}
         run: |
           PATCH_FILE=manifests/overlays/${TARGET}/patch-deployment.yaml
@@ -157,9 +151,9 @@ jobs:
               spec:
                 containers:
                   - name: simple-app
-                    image: ${IMAGE}
+                    image: ${REGISTRY}/${REMOTE_REPO}:${TAG}
           EOF
           
           git add ${PATCH_FILE}
-          git commit -m "chore: update ${TARGET} image to ${{ needs.build-and-push.outputs.tag }}" || true
+          git commit -m "chore: update ${TARGET} image to ${TAG}" || true
           git push origin HEAD:${{ needs.build-and-push.outputs.push_branch }} || true
