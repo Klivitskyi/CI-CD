@@ -72,6 +72,9 @@ jobs:
           REGISTRY: ${{ secrets.REGISTRY }}
           REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
         run: |
+
+          echo ${REGISTRY}/${REMOTE_REPO}
+
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
             TARGET=prod
@@ -82,9 +85,7 @@ jobs:
             PUSH_BRANCH=dev
           fi
 
-          IMAGE="${REGISTRY}/${REMOTE_REPO}"
-
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${REMOTE_REPO}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG_NAME}" >> "$GITHUB_OUTPUT"
           echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
           echo "push_branch=${PUSH_BRANCH}" >> "$GITHUB_OUTPUT"
