@@ -68,6 +68,9 @@ jobs:
 
       - name: Determine image tag and target
         id: image
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          REMOTE_REPO: ${{ env.REMOTE_REPO }}
         run: |
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG_NAME=${GITHUB_REF#refs/tags/}
