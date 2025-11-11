@@ -8,4 +8,4 @@ spec:
     spec:
       containers:
         - name: simple-app
-          image: PLACEHOLDER_IMAGE
+          image: :v1.0.0
