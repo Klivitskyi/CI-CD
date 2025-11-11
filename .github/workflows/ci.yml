@@ -1,19 +1,24 @@
-name: CI
+name: CI/CD GitOps Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [dev]
     tags: ['*']
   pull_request:
-    branches: [ main ]
+    branches: [dev]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY }}
+  REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
+  GITHUB_REPOSITORY: ${{ github.repository }}
 
 jobs:
   test:
-    name: Test & Security scan
+    name: Test & Security Scan
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,6 +31,7 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -37,115 +43,119 @@ jobs:
           pip install -r requirements.txt
           pip install pip-audit bandit
 
-      - name: Run tests
+      - name: Run pytest
         run: python -m pytest -q
 
-      - name: Run pip-audit (dependency security)
-        # CI runners don't need a spinner; use --progress-spinner off to avoid invalid values
+      - name: Run pip-audit
         run: python -m pip_audit --progress-spinner off
 
-      - name: Run bandit (static security scan)
+      - name: Run bandit
         run: bandit -r . -q || true
 
-  build:
-    name: Build Docker image
+  build-and-push:
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: test
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      tag: ${{ steps.image.outputs.tag }}
+      target: ${{ steps.image.outputs.target }}
+      push_branch: ${{ steps.image.outputs.push_branch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU (for multi-arch, optional)
+      - name: Determine image tag and target
+        id: image
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            TARGET=prod
+            PUSH_BRANCH=main
+          else
+            TAG_NAME=dev-${GITHUB_SHA::7}
+            TARGET=dev
+            PUSH_BRANCH=dev
+          fi
+          
+          if [ -n "${REMOTE_REPO}" ]; then
+            REPO=${REMOTE_REPO}
+          else
+            REPO=ivanklivitskyi/simple-python-app
+          fi
+          
+          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
+          IMAGE=${REGISTRY}/${REPO_LOWER}
+          
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "target=${TARGET}" >> $GITHUB_OUTPUT
+          echo "push_branch=${PUSH_BRANCH}" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
-      - name: Build image
-        env:
-          REGISTRY: ${{ secrets.REGISTRY }}
-          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: |
-          # Determine tag: if this run is for a git tag (refs/tags/*) use the tag name, otherwise use dev-<short-sha>
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          else
-            SHORT=${GITHUB_SHA::7}
-            TAG_NAME=dev-${SHORT}
-          fi
-
-          # choose remote repository namespace: optional secret REMOTE_REPOSITORY, fallback to github repository
-          if [ -n "${REMOTE_REPO}" ]; then
-            REPO=${REMOTE_REPO}
-          else
-            # default Docker Hub repository (owner/repo) — override with REMOTE_REPOSITORY secret if needed
-            REPO=ivanklivitskyi/simple-python-app
-          fi
-
-          # Docker requires lowercase repository names; normalize to lowercase
-          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
-          IMAGE=${REGISTRY}/${REPO_LOWER}
-          echo "Building ${IMAGE}:${TAG_NAME}"
-          docker build -t ${IMAGE}:${TAG_NAME} .
-          # save image to tar so it can be passed to the next job
-          docker save ${IMAGE}:${TAG_NAME} -o image.tar
-
-      - name: Upload image artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image-tar
-          path: image.tar
-
-  push:
-    name: Push image to registry
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Download image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-image-tar
-
-      - name: Load image
-        run: |
-          docker load -i image.tar
 
       - name: Log in to Docker registry
         uses: docker/login-action@v2
         with:
-          # Registry host (e.g. docker.io or registry.example.com) — set this in repo secrets as REGISTRY
-          registry: ${{ secrets.REGISTRY }}
+          registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Tag & push image to registry
-        env:
-          REGISTRY: ${{ secrets.REGISTRY }}
-          REMOTE_REPO: ${{ secrets.REMOTE_REPOSITORY }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_SHA: ${{ github.sha }}
+      - name: Build and push image
         run: |
-          # Determine tag name used during build: tag name for tag pushes, dev-<short-sha> for branch builds
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          else
-            TAG_NAME=dev-${GITHUB_SHA::7}
-          fi
+          IMAGE="${{ steps.image.outputs.image }}:${{ steps.image.outputs.tag }}"
+          echo "Building and pushing ${IMAGE}"
+          docker build -t ${IMAGE} .
+          docker push ${IMAGE}
 
-          if [ -n "${REMOTE_REPO}" ]; then
-            REPO=${REMOTE_REPO}
+  update-manifests:
+    name: Update Manifests for ArgoCD
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update overlay manifest
+        env:
+          IMAGE: ${{ needs.build-and-push.outputs.image }}:${{ needs.build-and-push.outputs.tag }}
+          TARGET: ${{ needs.build-and-push.outputs.target }}
+        run: |
+          PATCH_FILE=manifests/overlays/${TARGET}/patch-deployment.yaml
+          
+          if [ "${TARGET}" = "prod" ]; then
+            REPLICAS=3
           else
-            # default repository must match the build default
-            REPO=ivanklivitskyi/simple-python-app
+            REPLICAS=1
           fi
-          # normalize to lowercase for docker
-          REPO_LOWER=$(echo "${REPO}" | tr '[:upper:]' '[:lower:]')
-          IMAGE=${REGISTRY}/${REPO_LOWER}
-          echo "Pushing ${IMAGE}:${TAG_NAME}"
-          docker load -i image.tar
-          echo "Images after load:"
-          docker images --format "{{.Repository}}:{{.Tag}}" | sed -n '1,20p'
-          docker push ${IMAGE}:${TAG_NAME}
+          
+          cat > ${PATCH_FILE} <<EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: simple-app
+          spec:
+            replicas: ${REPLICAS}
+            template:
+              spec:
+                containers:
+                  - name: simple-app
+                    image: ${IMAGE}
+          EOF
+          
+          git add ${PATCH_FILE}
+          git commit -m "chore: update ${TARGET} image to ${{ needs.build-and-push.outputs.tag }}" || true
+          git push origin HEAD:${{ needs.build-and-push.outputs.push_branch }} || true
