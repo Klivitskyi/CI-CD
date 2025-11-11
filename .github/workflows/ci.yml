@@ -2,10 +2,10 @@ name: CI/CD GitOps Pipeline
 
 on:
   push:
-    branches: [dev]
+    branches: ['*']
     tags: ['*']
   pull_request:
-    branches: [dev]
+    branches: ['*']
 
 permissions:
   contents: write
@@ -56,6 +56,7 @@ jobs:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
     needs: test
+    if: github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/')
     outputs:
       image: ${{ steps.image.outputs.image }}
       tag: ${{ steps.image.outputs.tag }}
