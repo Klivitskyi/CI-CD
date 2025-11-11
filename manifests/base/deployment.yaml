@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: simple-app
-          # This image will be overwritten by the overlay patch
-          image: ci-cd-placeholder:latest
+          # Default image (can be overridden by overlays). Set to Docker Hub repo.
+          image: ivanklivitskyi/simple-python-app:latest
           ports:
             - containerPort: 80
